@@ -1,4 +1,8 @@
-﻿using UnityEngine;
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Events;
 #if ENABLE_INPUT_SYSTEM && STARTER_ASSETS_PACKAGES_CHECKED
 using UnityEngine.InputSystem;
 #endif
@@ -60,6 +64,20 @@ namespace StarterAssets
 		private float _verticalVelocity;
 		private float _terminalVelocity = 53.0f;
 
+		//gun stuff
+		public UIManager uiManage;
+		private bool canShoot;
+		public float shootCooldown;
+		public GameObject gunPrefab;
+		public GameObject bullet;
+		public GameObject fireCicle;
+		public float FireRingDuration;
+		public bool abilityRunning;
+		public GameObject fireStomp;
+		public bool fireStompRunning;
+		public List<AudioClip> clips;
+		public AudioSource src;
+
 		// timeout deltatime
 		private float _jumpTimeoutDelta;
 		private float _fallTimeoutDelta;
@@ -71,6 +89,8 @@ namespace StarterAssets
 		private CharacterController _controller;
 		private StarterAssetsInputs _input;
 		private GameObject _mainCamera;
+
+		UnityEvent abilityTriggered = new UnityEvent();
 
 		private const float _threshold = 0.01f;
 
@@ -93,12 +113,14 @@ namespace StarterAssets
 			{
 				_mainCamera = GameObject.FindGameObjectWithTag("MainCamera");
 			}
+			src = GetComponent<AudioSource>();
 		}
 
 		private void Start()
 		{
 			_controller = GetComponent<CharacterController>();
 			_input = GetComponent<StarterAssetsInputs>();
+			canShoot=true;
 #if ENABLE_INPUT_SYSTEM && STARTER_ASSETS_PACKAGES_CHECKED
 			_playerInput = GetComponent<PlayerInput>();
 #else
@@ -108,13 +130,54 @@ namespace StarterAssets
 			// reset our timeouts on start
 			_jumpTimeoutDelta = JumpTimeout;
 			_fallTimeoutDelta = FallTimeout;
+
+			_input.abilityUsed.AddListener(CheckAbility);
+			abilityRunning=false;
 		}
 
 		private void Update()
 		{
 			JumpAndGravity();
+			Shoot();
 			GroundedCheck();
 			Move();
+		}
+
+        private void Shoot()
+        {
+            if (_input.shoot && canShoot) //&& canshoot
+			{
+				src.PlayOneShot(clips[1]);
+				Instantiate(bullet, gunPrefab.transform.position, gunPrefab.transform.rotation);
+				StartCoroutine("ShootCooldown");
+			}
+        }
+
+		public IEnumerator ShootCooldown(){
+			canShoot = false;
+			yield return new WaitForSeconds(shootCooldown);
+			canShoot=true;
+		}
+
+        private void CheckAbility(){
+			uiManage.GreyKeys();
+			src.PlayOneShot(clips[0]);
+			if (_input.ability1 && !abilityRunning) //&& cooldown is 0
+			{
+				StartCoroutine("Ability1");
+				_input.ability1=false;
+			}
+			else if (_input.ability2 && !abilityRunning) //&& cooldown is 0
+			{
+				StartCoroutine("Ability2");
+				_input.ability2=false;
+			}
+			else if (_input.ability3 && !abilityRunning) //&& cooldown is 0
+			{
+				StartCoroutine("Ability3");
+				_input.ability3=false;
+			}
+			Debug.Log("checking for ability");
 		}
 
 		private void LateUpdate()
@@ -216,6 +279,11 @@ namespace StarterAssets
 				{
 					// the square root of H * -2 * G = how much velocity needed to reach desired height
 					_verticalVelocity = Mathf.Sqrt(JumpHeight * -2f * Gravity);
+					if (fireStompRunning)
+					{
+						Instantiate(fireStomp, transform.position, Quaternion.identity);
+						src.PlayOneShot(clips[2]);
+					}
 				}
 
 				// jump timeout
@@ -244,6 +312,46 @@ namespace StarterAssets
 			{
 				_verticalVelocity += Gravity * Time.deltaTime;
 			}
+		}
+
+		private IEnumerator Ability1(){
+			//double shoot speed for 10 seconds;
+			abilityRunning=true;
+			Debug.Log("Ability 1 activated");
+			shootCooldown/=2;
+			yield return new WaitForSeconds(10);
+			shootCooldown*=2;
+			abilityRunning=false;
+			uiManage.UngreyKeys();
+		}
+		private IEnumerator Ability2(){
+			//fire circle around yourself
+			abilityRunning=true;
+			canShoot=false;
+			var fireCircleInstance = Instantiate (fireCicle,transform.position, Quaternion.identity);
+			src.PlayOneShot(clips[3]);
+      		fireCircleInstance.transform.parent = gameObject.transform;
+			Debug.Log("Ability 2 activated");
+			yield return new WaitForSeconds(FireRingDuration);
+			Destroy(fireCircleInstance);
+			canShoot = true;
+			uiManage.UngreyKeys();
+			abilityRunning=false;
+		}
+		private IEnumerator Ability3(){
+			//jump and spawn fire, land and spawn fire
+			abilityRunning=true;
+			JumpHeight*=3;
+			Debug.Log("Ability 3 activated");
+			canShoot=false;
+			fireStompRunning=true;
+			
+			yield return new WaitForSeconds(10);
+			JumpHeight/=3;
+			canShoot=true;
+			fireStompRunning=false;
+			uiManage.UngreyKeys();
+			abilityRunning=false;
 		}
 
 		private static float ClampAngle(float lfAngle, float lfMin, float lfMax)
